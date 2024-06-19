@@ -1,2 +1,10 @@
 *.nds
+*.sav
 base/*
+filesys/*
+
+# ghidra (debugging)
+debug.gpr
+debug.lock
+debug.lock~
+debug.rep/*
