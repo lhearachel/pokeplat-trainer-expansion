@@ -1,0 +1,8 @@
+[submodule "tools/ndstool"]
+	path = tools/ndstool
+	url = git@github.com:devkitPro/ndstool.git
+    ignore = dirty
+[submodule "tools/armips"]
+	path = tools/armips
+	url = git@github.com:Kingcom/armips.git
+    ignore = dirty
