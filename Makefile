@@ -29,7 +29,7 @@ else
 	@echo -e "$(RED)$(BASEROM) not found; cannot unpack$(RESET)"
 endif
 
-it: unpack-rom $(SOURCES) | $(BASEDIR) $(FILESYS)
+it: unpack-rom $(ARMIPS) $(SOURCES) | $(BASEDIR) $(FILESYS)
 	@echo -e ""
 	$(foreach s, $(SOURCES), @echo -e "$(GREEN)Building $(s)...$(RESET)" ; $(ARMIPS) $(s))
 	@echo -e ""
