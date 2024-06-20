@@ -13,7 +13,7 @@
 @StackParam6        equ [sp, #0x08]
 @StackParam7        equ [sp, #0x0C]
 @StackHeapID        equ [sp, #0x10]
-@StackGenderConst   equ [sp, #0x14]
+@StackPIDModifier   equ [sp, #0x14]
 @StackSpeciesID     equ [sp, #0x34]
 @StackTrainerOffset equ [sp, #0x38]
 @StackFormID        equ [sp, #@FormIDOffset]
@@ -114,7 +114,7 @@ TrainerData_BuildParty:
     and     r0, r1          ; r0: [0, 1, 0]
     mul     r0, r2          ; r0: [0x00, 0x10, 0x00]
     add     r0, #0x78       ; r0: [0x78, 0x88, 0x78]
-    str     r0, @StackGenderConst
+    str     r0, @StackPIDModifier
 
     ; Set up for per-mon loop
     strimm  0, @StackMonLoopCtr
@@ -150,9 +150,9 @@ TrainerData_BuildParty:
     mov     r1, #0x20
     and     r1, r3
     asr     r1, #5
-    ldr     r0, @StackGenderConst
+    ldr     r0, @StackPIDModifier
     orr     r0, r1
-    str     r0, @StackGenderConst
+    str     r0, @StackPIDModifier
 
     ; Set up this mon's RNG seed
     ldrb    r1, [r7, #trpoke_dv]
@@ -178,7 +178,7 @@ TrainerData_BuildParty:
 
 @ContinueAfterRNG:
     lsl     r1, r0, #8
-    ldr     r0, @StackGenderConst
+    ldr     r0, @StackPIDModifier
     add     r6, r1, r0      ; r6: final personality val
 
     ; Compute IVs from DV
