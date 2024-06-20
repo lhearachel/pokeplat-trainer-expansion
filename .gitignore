@@ -2,6 +2,7 @@
 *.sav
 base/*
 filesys/*
+vanilla/*
 *DSPRE_contents/*
 
 # ghidra (debugging)
@@ -9,3 +10,6 @@ debug.gpr
 debug.lock
 debug.lock~
 debug.rep/*
+
+# release
+*.xdelta
