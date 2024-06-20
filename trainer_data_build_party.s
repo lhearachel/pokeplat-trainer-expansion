@@ -19,6 +19,7 @@
 @StackFormID        equ [sp, #@FormIDOffset]
 @StackTrainerType   equ [sp, #0x40]
 @StackBufferOffset  equ [sp, #0x44]
+@StackMonFlags      equ [sp, #0x48]
 @StackMonStruct     equ [sp, #0x50]
 @StackSeedBackup    equ [sp, #0x54]
 @StackRand          equ [sp, #0x58]
@@ -139,8 +140,22 @@ TrainerData_BuildParty:
     and     r0, r1          ; r0: 10 least-significant bits
     str     r0, @StackSpeciesID
 
+    ; Check flags for any need to override the personality
+    ; modifier for, e.g., ability choice.
+    ldrb    r3, [r7, #trpoke_flags]
+
+    ; If bit 5 of these flags is set, flip the gender const's parity.
+    ; This forces the Pokemon's ability to slot 2 instead of slot 1.
+    ; This mirrors functionality from HGSS.
+    mov     r1, #0x20
+    and     r1, r3
+    asr     r1, #5
+    ldr     r0, @StackGenderConst
+    orr     r0, r1
+    str     r0, @StackGenderConst
+
     ; Set up this mon's RNG seed
-    ldrh    r1, [r7, #trpoke_dv]
+    ldrb    r1, [r7, #trpoke_dv]
     ldrh    r2, [r7, #trpoke_level]
     ldr     r3, @StackTrainerOffset
     ldr     r3, [r3, #@BattlerTrainerID]
@@ -167,7 +182,7 @@ TrainerData_BuildParty:
     add     r6, r1, r0      ; r6: final personality val
 
     ; Compute IVs from DV
-    ldrh    r3, [r7, #trpoke_dv]
+    ldrb    r3, [r7, #trpoke_dv]
     mov     r0, #0x1F       ; max IVs for a single stat (31)
     mov     r1, #0xFF       ; max DV value (255)
     mul     r3, r0

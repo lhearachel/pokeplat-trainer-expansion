@@ -1,4 +1,5 @@
 trpoke_dv       equ 0x00
+trpoke_flags    equ 0x01
 trpoke_level    equ 0x02
 trpoke_species  equ 0x04
 trpoke_ballseal equ 0x06
