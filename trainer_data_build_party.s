@@ -17,6 +17,8 @@
 @StackSpeciesID     equ [sp, #0x34]
 @StackTrainerOffset equ [sp, #0x38]
 @StackFormID        equ [sp, #@FormIDOffset]
+@StackTrainerType   equ [sp, #0x40]
+@StackBufferOffset  equ [sp, #0x44]
 @StackMonStruct     equ [sp, #0x50]
 @StackSeedBackup    equ [sp, #0x54]
 @StackRand          equ [sp, #0x58]
@@ -28,6 +30,7 @@
 @BattlerTrainerType         equ 0x28    ; trdata byte 0
 @BattlerTrainerClass        equ 0x29    ; trdata byte 1
 @BattlerTrainerPartySize    equ 0x2B    ; trdata byte 3
+
 
 .macro malloc, size, dest
     ldr     r0, @StackHeapID
@@ -56,6 +59,12 @@
     mov     r0, #imm
     str     r0, offset
 .endmacro
+
+.macro tstimm, reg, imm
+    mov     r1, imm
+    tst     reg, r1
+.endmacro
+
 
 .org 0x020793B8     ; the vanilla routine is located at this memory address
 .area 0x0410, 0xFF  ; do not consume more than 0x0410 bytes of space (the size of the vanilla routine)
@@ -114,6 +123,8 @@ TrainerData_BuildParty:
 
     add     r0, r4, r6
     str     r0, @StackTrainerOffset
+    ldrsb   r0, r5, @BattlerTrainerType
+    str     r0, @StackTrainerType
     ldr     r7, @StackReadBuffer
 
 @LoopPerMon:
@@ -173,6 +184,50 @@ TrainerData_BuildParty:
     ldrh    r2, [r7, #trpoke_level]
     bl      Pokemon_InitWith
 
+    ; From here, we will be chomping through r7 byte-by-byte, starting
+    ; from 6 bytes ahead (which we have already read)
+    add     r7, #trpoke_headsize
+
+@ReadHeldItem:
+    ; If bit 2 of the trainer type is set, then trpoke entries
+    ; list held items for each party member
+    ldr     r0, @StackTrainerType
+    mov     r1, #2
+    and     r0, r1
+    cmp     r0, #0
+    beq     @ReadMoves
+
+    ; Set the held item
+    ldr     r0, @StackMonStruct
+    mov     r1, #MON_DATA_HELD_ITEM
+    mov     r2, r7
+    bl      Pokemon_SetValue
+
+    add     r7, #trpoke_itemsize
+
+@ReadMoves:
+    ; If bit 1 of the trainer type is set, then trpoke entries
+    ; list moves for each party member's move set
+    ldr     r0, @StackTrainerType
+    mov     r1, #1
+    and     r0, r1
+    cmp     r0, #0
+    beq     @SetCommonValues
+
+    mov     r6, #0              ; r6: read moves loop counter
+
+@@ReadOneMove:
+    ldr     r0, @StackMonStruct
+    ldrh    r1, [r7]
+    mov     r2, r6
+    bl      Pokemon_SetMoveSlot
+
+    add     r7, #trpoke_movesize
+    add     r6, #1              ; check if we've read 4 moves
+    cmp     r6, #4
+    blt     @@ReadOneMove
+
+@SetCommonValues:
     ; Set the form ID
     ldr     r0, @StackMonStruct
     mov     r1, #MON_DATA_FORM
@@ -180,7 +235,7 @@ TrainerData_BuildParty:
     bl      Pokemon_SetValue
 
     ; Set the ball seal
-    ldrh    r0, [r7, #trpoke_ballseal]
+    ldrh    r0, [r7]
     ldr     r1, @StackMonStruct
     ldr     r2, @StackHeapID
     bl      Pokemon_SetBallSeal
@@ -192,10 +247,10 @@ TrainerData_BuildParty:
     bl      Party_AddPokemon
 
     ; Set up for next iteration
-    add     r7, #trpoke_size0
     ldr     r0, @StackMonLoopCtr
     add     r0, #1
     str     r0, @StackMonLoopCtr
+    add     r7, #2
     ldrsb   r1, r5, @BattlerTrainerPartySize
     cmp     r0, r1
     blt     @LoopPerMon

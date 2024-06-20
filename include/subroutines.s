@@ -25,4 +25,5 @@ TrainerClass_Gender     equ 0x020793AC
 TrainerData_LoadParty   equ 0x0207939C
 
 ; These values are control codes for Pokemon_SetValue
-MON_DATA_FORM equ 112
+MON_DATA_HELD_ITEM  equ 6
+MON_DATA_FORM       equ 112

@@ -11,11 +11,15 @@ NDSTOOL_ARGS := -9 $(BASEDIR)/arm9.bin -7 $(BASEDIR)/arm7.bin -y9 $(BASEDIR)/y9.
 
 SOURCES := $(wildcard *.s)
 
+all: it
+
 include tools.mk
 
 $(BASEDIR):
+	@mkdir -p $(BASEDIR)
+
 $(FILESYS):
-	@mkdir -p $@
+	@mkdir -p $(FILESYS)
 
 unpack-rom: $(NDSTOOL) | $(BASEDIR) $(FILESYS)
 ifneq ("$(wildcard $(BASEROM))", "")
@@ -25,9 +29,13 @@ else
 	@echo -e "$(RED)$(BASEROM) not found; cannot unpack$(RESET)"
 endif
 
-it: unpack-rom $(SOURCES)
+it: unpack-rom $(SOURCES) | $(BASEDIR) $(FILESYS)
 	@echo -e ""
 	$(foreach s, $(SOURCES), @echo -e "$(GREEN)Building $(s)...$(RESET)" ; $(ARMIPS) $(s))
 	@echo -e ""
-	@echo -e "$(GREEN)Repacking $(BASEROM)...$(RESET)"
+	@echo -e "$(GREEN)Repacking $(BASEROM) to $(BUILDROM)...$(RESET)"
 	@$(NDSTOOL) -c $(BUILDROM) $(NDSTOOL_ARGS)
+
+clean:
+	rm -rf $(BASEDIR)
+	rm -rf $(FILESYS)

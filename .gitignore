@@ -2,6 +2,7 @@
 *.sav
 base/*
 filesys/*
+*DSPRE_contents/*
 
 # ghidra (debugging)
 debug.gpr
