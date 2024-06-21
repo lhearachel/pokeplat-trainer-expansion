@@ -1,4 +1,3 @@
-GREEN := \x1b[1;31m
 GREEN := \x1b[1;32m
 RESET := \x1b[0;m
 
@@ -46,7 +45,7 @@ it: tools unpack-rom backup $(SOURCES) | $(BASEDIR) $(FILESYS)
 
 patch:
 	@printf "$(GREEN)Generating arm9 patch...$(RESET)\n"
-	xdelta3 -e -s $(VANILLA)/arm9.bin $(BASEDIR)/arm9.bin trainer_expansion.xdelta
+	xdelta3 -e -f -s $(VANILLA)/arm9.bin $(BASEDIR)/arm9.bin trainer_expansion.xdelta
 
 dump:
 	@hexdump -X -s 0x793B8 -n 0x410 --no-squeezing base/arm9.bin | tr -s ' ' | cut -d ' ' -f 2- | head -n -1
