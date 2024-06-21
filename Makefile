@@ -48,6 +48,9 @@ patch:
 	@printf "$(GREEN)Generating arm9 patch...$(RESET)\n"
 	xdelta3 -e -s $(VANILLA)/arm9.bin $(BASEDIR)/arm9.bin trainer_expansion.xdelta
 
+dump:
+	@hexdump -X -s 0x793B8 -n 0x410 --no-squeezing base/arm9.bin | tr -s ' ' | cut -d ' ' -f 2- | head -n -1
+
 clean: clean-tools
 	rm -rf $(BASEDIR)
 	rm -rf $(FILESYS)
