@@ -17,6 +17,7 @@ Party_AddPokemon        equ 0x0207A048
 
 Pokemon_New             equ 0x02073C74
 Pokemon_InitWith        equ 0x02073D80
+Pokemon_GetValue        equ 0x02074470
 Pokemon_SetValue        equ 0x02074B30
 Pokemon_SetMoveSlot     equ 0x02077230
 Pokemon_SetBallSeal     equ 0x02078AEC
@@ -25,10 +26,3 @@ TrainerClass_Gender     equ 0x020793AC
 TrainerData_LoadParty   equ 0x0207939C
 
 PokemonPersonalData_GetFormValue equ 0x020759CC
-
-; These values are control codes for Pokemon_SetValue
-MON_DATA_HELD_ITEM  equ 6
-MON_DATA_FORM       equ 112
-
-; And these are for PokemonPersonalData_GetFormValue
-MON_DATA_PERSONAL_GENDER equ 18

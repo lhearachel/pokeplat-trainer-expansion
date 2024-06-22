@@ -3,10 +3,12 @@
 
 .open "base/arm9.bin", 0x02000000
 
+.include "include/constants.s"
 .include "include/subroutines.s"
 .include "include/trpoke.s"
 
 @PIDModifierOffset  equ 0x14
+@FriendshipOffset   equ 0x18
 @FormIDOffset       equ 0x3C
 
 @StackParam4        equ [sp, #0x00]
@@ -15,6 +17,7 @@
 @StackParam7        equ [sp, #0x0C]
 @StackHeapID        equ [sp, #0x10]
 @StackPIDModifier   equ [sp, #@PIDModifierOffset]
+@StackFriendship    equ [sp, #@FriendshipOffset]
 @StackSpeciesID     equ [sp, #0x34]
 @StackTrainerOffset equ [sp, #0x38]
 @StackFormID        equ [sp, #@FormIDOffset]
@@ -237,6 +240,10 @@ TrainerData_BuildParty:
     blt     @@ReadOneMove
 
 @SetCommonValues:
+    ; Set friendship
+    ldr     r0, @StackMonStruct
+    bl      TrainerMon_SetFriendship
+
     ; Set the form ID
     ldr     r0, @StackMonStruct
     mov     r1, #MON_DATA_FORM
@@ -277,10 +284,6 @@ TrainerData_BuildParty:
 
 TrainerMon_ParseOverrideFlags:
     ; Utility function to parse override flags for each entry in trpoke.
-    ;
-    ; Expected entry state is that r7 contains the address of the read-buffer
-    ; for the trainer's trpoke file, and that it currently points to the head of
-    ; a party member's entry in that file.
     ;
     ; Inputs:
     ;   r0: species ID
@@ -357,6 +360,42 @@ TrainerMon_ParseOverrideFlags:
 @OverrideFlagsReturn:
     mov     r0, r7
     pop     {r4-r7, pc}
+
+TrainerMon_SetFriendship:
+    ; Utility function to parse override flags for each entry in trpoke.
+    ;
+    ; Inputs:
+    ;   r0: address of the active Pokemon struct
+    push    {r3-r7, lr}
+    mov     r7, #0xFF       ; r7: friendship value
+    mov     r6, #0          ; r6: loop counter
+    mov     r5, r0          ; r5: address of the Pokemon struct
+
+@CheckMovesLoop:
+    mov     r1, #MON_DATA_MOVE1
+    add     r1, r6
+    mov     r2, #0
+    bl      Pokemon_GetValue
+
+    cmp     r0, #MOVE_FRUSTRATION
+    beq     @@ZeroFriendship
+    b       @@CheckMovesLoopIterate
+
+@@ZeroFriendship:
+    mov     r7, #0
+
+@@CheckMovesLoopIterate:
+    mov     r0, r5
+    add     r6, #1
+    cmp     r6, #4
+    blt     @CheckMovesLoop
+
+@SetFriendship:
+    mov     r1, #MON_DATA_FRIENDSHIP
+    str     r7, @StackFriendship
+    add     r2, sp, @FriendshipOffset
+    bl      Pokemon_SetValue
+    pop     {r3-r7, pc}
 
 .endarea ; 0x0408, 0xFF
 
