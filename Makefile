@@ -2,11 +2,11 @@ GREEN := \x1b[1;32m
 RESET := \x1b[0;m
 
 BASEDIR := base
+FILESYS := $(BASEDIR)/filesys
 
 BASEROM := pokeplatinum.us.nds
 BUILDROM := pokeplatinum.us.patched.nds
 XDPATCH := trainerdata.xdelta
-FILESYS := filesys
 VANILLA := vanilla
 
 NDSTOOL_ARGS := -9 $(BASEDIR)/arm9.bin -7 $(BASEDIR)/arm7.bin -y9 $(BASEDIR)/y9.bin -y7 $(BASEDIR)/y7.bin -d $(FILESYS) -y $(BASEDIR)/overlay -t $(BASEDIR)/banner.bin -h $(BASEDIR)/header.bin
