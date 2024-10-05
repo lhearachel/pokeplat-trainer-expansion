@@ -405,4 +405,10 @@ _doneWithOverrides:
 
 .endarea
 
+.org 0x20797C0      ; code signature for identification by other tools
+.area 0x08
+.word  0x1948BA48
+.ascii "LHEA"
+.endarea
+
 .close
