@@ -19,8 +19,10 @@ Pokemon_New             equ 0x02073C74
 Pokemon_InitWith        equ 0x02073D80
 Pokemon_GetValue        equ 0x02074470
 Pokemon_SetValue        equ 0x02074B30
+BoxPokemon_SetMoveSlot  equ 0x02077238
 Pokemon_SetMoveSlot     equ 0x02077230
 Pokemon_SetBallSeal     equ 0x02078AEC
+Pokemon_CalcStats       equ 0x020741B8
 
 TrainerClass_Gender     equ 0x020793AC
 TrainerData_LoadParty   equ 0x0207939C

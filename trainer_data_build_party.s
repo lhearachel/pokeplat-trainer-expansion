@@ -7,69 +7,21 @@
 .include "include/subroutines.s"
 .include "include/trpoke.s"
 
-@PIDModifierOffset  equ 0x14
-@FriendshipOffset   equ 0x18
-@FormIDOffset       equ 0x3C
-
-@StackParam4        equ [sp, #0x00]
-@StackParam5        equ [sp, #0x04]
-@StackParam6        equ [sp, #0x08]
-@StackParam7        equ [sp, #0x0C]
-@StackHeapID        equ [sp, #0x10]
-@StackPIDModifier   equ [sp, #@PIDModifierOffset]
-@StackFriendship    equ [sp, #@FriendshipOffset]
-@StackSpeciesID     equ [sp, #0x34]
-@StackTrainerOffset equ [sp, #0x38]
-@StackFormID        equ [sp, #@FormIDOffset]
-@StackTrainerType   equ [sp, #0x40]
-@StackBufferOffset  equ [sp, #0x44]
-@StackMonFlags      equ [sp, #0x48]
-@StackMonStruct     equ [sp, #0x50]
-@StackSeedBackup    equ [sp, #0x54]
-@StackRand          equ [sp, #0x58]
-@StackMonLoopCtr    equ [sp, #0x5C]
-@StackReadBuffer    equ [sp, #0x60]
-
-@BattlerPartyStruct         equ 0x04
-@BattlerTrainerID           equ 0x18
-@BattlerTrainerType         equ 0x28    ; trdata byte 0
-@BattlerTrainerClass        equ 0x29    ; trdata byte 1
-@BattlerTrainerPartySize    equ 0x2B    ; trdata byte 3
-
-
-.macro malloc, size, dest
-    ldr     r0, @StackHeapID
-    mov     r1, #size
-    bl      Heap_AllocFromHeap
-    str     r0, dest
-.endmacro
-
-.macro free, spofs
-    ldr     r0, spofs
-    bl      Heap_FreeToHeap
-.endmacro
-
-.macro ldrs, dest, offset_reg, imm
-    add     dest, r4, offset_reg
-    ldr     dest, [dest, #imm]
-.endmacro
-
-.macro ldrsb, dest, offset, imm
-    add     dest, r4, offset
-    add     dest, #imm
-    ldrb    dest, [dest]
-.endmacro
-
-.macro strimm, imm, offset
-    mov     r0, #imm
-    str     r0, offset
-.endmacro
-
-.macro tstimm, reg, imm
-    mov     r1, imm
-    tst     reg, r1
-.endmacro
-
+stack_heapID        equ [sp, #0x10]         // local_50
+stack_trdataOfs     equ [sp, #0x14]         // local_4c
+stack_battlerOfs    equ [sp, #0x18]         // local_48
+stack_monSpecies    equ [sp, #0x1C]         // local_44
+stack_monLevel      equ [sp, #0x20]         // local_40
+stack_monDV         equ [sp, #0x24]         // local_3c
+stack_haveMoves     equ [sp, #0x28]         // local_38
+stack_haveItems     equ [sp, #0x2C]         // local_34
+stack_paramsWithOfs equ [sp, #0x30]         // local_30
+stack_oldSeed       equ [sp, #0x34]         // local_2c
+stack_rnd           equ [sp, #0x38]         // local_28
+stack_loopCounter   equ [sp, #0x3C]         // local_24
+stack_trpokeBuf     equ [sp, #0x40]         // local_20
+// 0x44 (reserved for form ID)
+stack_pidMod        equ [sp, #0x48]         // local_18
 
 .org 0x020793B8     ; the vanilla routine is located at this memory address
 .area 0x0408, 0xFF  ; limit to 0x408 bytes of space
@@ -78,331 +30,379 @@ TrainerData_BuildParty:
     ;   r0: ptr to BattleParams struct
     ;   r1: battler ID (in range [0..3])
     ;   r2: heap ID
-    push    {r3-r7, lr}
-    sub     sp, #0x68
-    mov     r7, r1
-    mov     r4, r0
+    push    {r4-r7,lr}
+    sub     sp, #0x4C
 
-    ; Preserve the current RNG seed
-    str     r2, @StackHeapID
-    bl      LCRNG_GetSeed
-    str     r0, @StackSeedBackup
+    mov     r4, r1              ; r4 -> battler ID
+    mov     r7, r0              ; r7 -> pointer to BattleParams
+    str     r2, stack_heapID
 
-    ; Initialize the battler's Party struct
-    lsl     r6, r7, #2      ; r6: one of [0, 4, 8, 12]
-    ldrs    r0, r6, @BattlerPartyStruct
-    mov     r1, #6
+    ; Remember the current RNG seed
+    bl      LCRNG_GetSeed       ; r0 -> current RNG seed
+    str     r0, stack_oldSeed
+
+    ; Allocate space for the party on the heap
+    lsl     r0, r4, #2
+    str     r0, stack_battlerOfs
+    add     r0, r7
+    ldr     r0, [r0, #0x04]     ; r0 -> pointer to Party for battlerID
+    mov     r1, #6              ; r1 -> Max party size (6 mons)
     bl      Party_InitWithCapacity
 
-    ; Allocate temporary read-buffer and Pokemon struct
-    malloc  0x6C, @StackReadBuffer
-    ldr     r0, @StackHeapID
-    bl      Pokemon_New
-    str     r0, @StackMonStruct
+    ; Allocate size for the trpoke buffer on the heap
+    ldr     r0, stack_heapID    ; r0 -> heap ID
+    mov     r1, #0x6C           ; r1 -> Maximum size of a single trpoke entry
+    bl      Heap_AllocFromHeap  ; r0 -> pointer to heap allocation
+    str     r0, stack_trpokeBuf
 
-    ; Load file from trpoke.narc
-    ldrs    r0, r6, @BattlerTrainerID
-    ldr     r1, @StackReadBuffer
+    ; Allocate a Pokemon struct on the heap
+    ldr     r0, stack_heapID    ; r0 -> heap ID
+    bl      Pokemon_New         ; r0 -> pointer to Pokemon
+    mov     r6, r0              ; r6 -> pointer to Pokemon
+
+    ; Load the trpoke buffer
+    ldr     r0, stack_battlerOfs
+    add     r0, r7
+    ldr     r0, [r0, #0x18]     ; r0 -> trainer ID for battlerID
+    ldr     r1, stack_trpokeBuf ; r1 -> pointer to trpoke buffer
     bl      TrainerData_LoadParty
 
-    ; Get gender of trainer's class (one of 0, 1, or 2)
-    mov     r0, 0x34
-    mov     r5, r7
-    mul     r5, r0
-    ldrsb   r0, r5, @BattlerTrainerClass
+    ; Load the magic gender constant for this battler's trainer class
+    mov     r0, #0x34
+    mul     r0, r4
+    str     r0, stack_trdataOfs
+    add     r0, r7              ; r0 -> pointer to TrainerData for battlerID
+    add     r0, #0x29           ; r0 -> pointer to class for this trainer
+    ldrb    r0, [r0, #0x00]     ; r0 -> class for this trainer
     bl      TrainerClass_Gender
 
-    ; Calculate magic gender constant for RNG re-seed
+    ; Compute a magic PID modifier for this trainer's gender.
+    cmp     r0, #1              ; gender 1 is female
+    bne     _trainerIsNotFemale
+
+_trainerIsFemale:
+    mov     r0, #0x78
+   b       _continueFromCalcPID
+
+_trainerIsNotFemale:
+    mov     r0, #0x88
+
+_continueFromCalcPID:
+    str     r0, stack_pidMod
+
+    ; Setup the loop
+    ldr     r0, stack_trdataOfs
+    add     r0, r7              ; r0 -> pointer to TrainerData for battlerID
+    mov     r1, r0              ; r1 -> pointer to TrainerData for battlerID
+    add     r0, #0x28           ; r0 -> pointer to data flags for this trainer
+    add     r1, #0x2B           ; r1 -> pointer to party size for this trainer
+    ldrb    r0, [r0]            ; r0 -> data flags for this trainer
+    ldrb    r1, [r1]            ; r1 -> party size for this trainer
+
+    mov     r2, #0
+    str     r2, stack_loopCounter
+
+    cmp     r1, #0
+    bgt     _preLoop
+    b       _cleanup
+
+_preLoop:
+    ldr     r1, stack_battlerOfs
+    add     r1, r7
+    str     r1, stack_paramsWithOfs
+    mov     r1, #2
+    and     r1, r0
+    str     r1, stack_haveItems
     mov     r1, #1
-    mov     r2, #0x10
-    and     r0, r1          ; r0: [0, 1, 0]
-    mul     r0, r2          ; r0: [0x00, 0x10, 0x00]
-    add     r0, #0x78       ; r0: [0x78, 0x88, 0x78]
-    str     r0, @StackPIDModifier
+    and     r1, r0
+    str     r1, stack_haveMoves
+    ldr     r5, stack_trpokeBuf
 
-    ; Set up for per-mon loop
-    strimm  0, @StackMonLoopCtr
-    ldrsb   r0, r5, @BattlerTrainerPartySize
-    cmp     r0, #0
-    ble     @Cleanup
+_mainLoop:
+    ldrb    r0, [r5, #0]        ; r0 -> DV for this mon
+    ldrb    r2, [r5, #1]        ; r2 -> data flags for this mon
+    str     r0, stack_monDV
 
-    add     r0, r4, r6
-    str     r0, @StackTrainerOffset
-    ldrsb   r0, r5, @BattlerTrainerType
-    str     r0, @StackTrainerType
-    ldr     r7, @StackReadBuffer
+    ldrb    r0, [r5, #3]        ; r0 -> high byte of level
+    lsl     r1, r0, #8          ; r1 -> high byte of level
+    ldrb    r0, [r5, #2]        ; r0 -> low byte of level
+    orr     r0, r1              ; r0 -> level for this mon
+    str     r0, stack_monLevel
 
-@LoopPerMon:
-    ; Extract species ID and form ID
-    ldrh    r6, [r7, #trpoke_species]
-    mov     r1, #0x3F
-    lsl     r1, #10         ; r1: 0xFC00
-    and     r1, r6          ; r1: 6 most-significant bits
-    asr     r1, r1, #10     ; r1: form ID
-    str     r1, @StackFormID
+    ldrb    r0, [r5, #5]        ; r0 -> high byte of mon ID
+    lsl     r1, r0, #8          ; r1 -> high byte of mon ID
+    ldrb    r0, [r5, #4]        ; r0 -> low byte of mon ID
+    orr     r0, r1              ; r0 -> mon ID for this mon (species + form)
+    add     r5, r5, #6          ; Chomp through 6 bytes read so far
 
-    ldr     r0, =0x03FF
-    and     r0, r6          ; r0: 10 least-significant bits
+    ldr     r1, =0x03FF
+    and     r1, r0              ; r1 -> species for this mon
+    str     r1, stack_monSpecies
 
-    ; Handle override flags
-    mov     r0, r6
-    ; r1 is the form ID
-    ldrb    r2, [r7, #trpoke_flags]
-    add     r3, sp, @PIDModifierOffset
-    bl      TrainerMon_ParseOverrideFlags
+    asr     r0, r0, #10
+    add     r1, sp, #0x44
+    strb    r0, [r1]            ; sp + 0x44 -> form ID for this mon
 
-    ; Set up this mon's RNG seed
-    ldrb    r1, [r7, #trpoke_dv]
-    ldrh    r2, [r7, #trpoke_level]
-    ldr     r3, @StackTrainerOffset
-    ldr     r3, [r3, #@BattlerTrainerID]
-    add     r0, r0, r1
-    add     r0, r0, r2
-    add     r0, r0, r3      ; r0: species + trainer ID + mon DV + mon level
+    ; Check PID modifier override flags for gender and ability
+    mov     r1, r0              ; r1 -> form ID for this mon
+    ldr     r0, stack_monSpecies
+    add     r3, sp, #0x48       ; r3 -> address of PID modifier
+    bl      TrainerMon_CheckOverrideFlags
+
+    ; Setup the RNG seed for this mon
+    ldr     r1, stack_monDV
+    ldr     r0, stack_monLevel
+    add     r1, r0              ; r1 -> DV + level
+    ldr     r0, stack_monSpecies
+    add     r1, r0              ; r1 -> DV + level + species
+    ldr     r0, stack_paramsWithOfs
+    ldr     r0, [r0, #0x18]     ; r0 -> trainer ID for battler ID
+    add     r0, r1              ; r0 -> DV + level + species + trainer ID
+    str     r0, stack_rnd
     bl      LCRNG_SetSeed
 
-    ldrsb   r0, r5, @BattlerTrainerClass
-    mov     r6, #0
+    ; Setup the RNG chomp to generate a PID
+    ldr     r0, stack_trdataOfs
+    add     r0, r7
+    add     r0, #0x29
+    ldrb    r0, [r0]            ; r0 -> pointer to trainer class for this battler
+    mov     r4, #0              ; r4 -> loop counter for RNG
     cmp     r0, #0
-    ble     @ContinueAfterRNG
+    ble     _continueFromChompRNG
 
-@ChompRNG:
+_chompRNG:
     bl      LCRNG_Next
-    ldrsb   r1, r5, @BattlerTrainerClass
-    add     r6, #1
-    cmp     r6, r1
-    blt     @ChompRNG
+    str     r0, stack_rnd
 
-@ContinueAfterRNG:
-    lsl     r1, r0, #8
-    ldr     r0, @StackPIDModifier
-    add     r6, r1, r0      ; r6: final personality val
+    add     r4, r4, #1
+    ldr     r0, stack_trdataOfs
+    add     r0, r7
+    add     r0, #0x29
+    ldrb    r0, [r0]            ; r0 -> pointer to trainer class for this battler
+    cmp     r4, r0
+    blt     _chompRNG
 
-    ; Compute IVs from DV
-    ldrb    r3, [r7, #trpoke_dv]
-    mov     r0, #0x1F       ; max IVs for a single stat (31)
-    mov     r1, #0xFF       ; max DV value (255)
-    mul     r3, r0
-    blx     _s32_div_f
+_continueFromChompRNG:
+    ldr     r0, stack_rnd       ; r0 -> generated PID
+    lsl     r1, r0, #8          ; r1 -> generated PID << 8
+    ldr     r0, stack_pidMod
+    add     r4, r1, r0          ; r4 -> final PID
 
-    ; Initialize this Pokemon
-    mov     r3, r0              ; r3: IV value per stat
-    strimm   1, @StackParam4    ; p4: init routine should take our personality input
-    str     r6, @StackParam5    ; p5: personality input
-    strimm   2, @StackParam6    ; p6: init routine should generate a trainer ID to force non-shiny mons
-    strimm   0, @StackParam7    ; p7: irrelevant data entry
-    ldr     r0, @StackMonStruct
-    ldrh    r1, [r7, #trpoke_species]
-    ldrh    r2, [r7, #trpoke_level]
+    ; Compute the IV for each stat
+    ldr     r1, stack_monDV
+    mov     r0, #0x1F           ; r0 -> 31 (max IV for a stat)
+    mul     r0, r1
+    mov     r1, #0xFF           ; r1 -> 255 (max DV)
+    blx     _s32_div_f          ; r0 -> (DV * 31) / 255
+
+    ; Initialize the new Pokemon
+    mov     r3, r0              ; r3 -> IV per stat
+    mov     r0, #1
+    str     r0, [sp, #0x00]     ; param4 -> 1 (use input PID value)
+    str     r4, [sp, #0x04]     ; param5 -> computed PID
+    mov     r0, #2
+    str     r0, [sp, #0x08]     ; param6 -> 2 (do not generate a shiny mon)
+    mov     r0, #0
+    str     r0, [sp, #0x0C]     ; param7 -> 0 (original trainer ID)
+    mov     r0, r6              ; r0 -> pointer to Pokemon
+    ldr     r1, stack_monSpecies
+    ldr     r2, stack_monLevel
     bl      Pokemon_InitWith
 
-    ; From here, we will be chomping through r7 byte-by-byte, starting
-    ; from 6 bytes ahead (which we have already read)
-    add     r7, #trpoke_headsize
-
-@ReadHeldItem:
-    ; If bit 2 of the trainer type is set, then trpoke entries
-    ; list held items for each party member
-    ldr     r0, @StackTrainerType
-    mov     r1, #2
-    and     r0, r1
+    ; Set items, if the trainer flags say so
+    ldr     r0, stack_haveItems
     cmp     r0, #0
-    beq     @ReadMoves
+    beq     _continueFromSetItem
 
-    ; Set the held item
-    ldr     r0, @StackMonStruct
+    ldrb    r0, [r5, #1]        ; r0 -> high byte for this mon's held item
+    lsl     r1, r0, #8          ; r1 -> high byte for this mon's held item
+    ldrb    r0, [r5, #0]        ; r0 -> low byte for this mon's held item
+    orr     r1, r0              ; r1 -> this mon's held item
+    add     r5, r5, #2          ; Chomp through these two bytes
+
+    add     r2, sp, #0x44
+    add     r2, #2              ; r2 -> stack address for this mon's held item
+    strh    r1, [r2]
+    mov     r0, r6              ; r0 -> pointer to Pokemon
     mov     r1, #MON_DATA_HELD_ITEM
-    mov     r2, r7
     bl      Pokemon_SetValue
 
-    add     r7, #trpoke_itemsize
-
-@ReadMoves:
-    ; If bit 1 of the trainer type is set, then trpoke entries
-    ; list moves for each party member's move set
-    ldr     r0, @StackTrainerType
-    mov     r1, #1
-    and     r0, r1
+_continueFromSetItem:
+    ; Set moves, if the trainer flags say so
+    ldr     r0, stack_haveMoves
     cmp     r0, #0
-    beq     @SetCommonValues
+    beq     _continueFromSetMoves
+    mov     r4, #0
 
-    mov     r6, #0              ; r6: read moves loop counter
+_setMovesLoop:
+    ldrb    r0, [r5, #1]        ; r0 -> high byte for this move
+    lsl     r1, r0, #8          ; r1 -> high byte for this move
+    ldrb    r0, [r5, #0]        ; r0 -> low byte for this move
+    orr     r1, r0              ; r1 -> ID for this move
+    add     r5, r5, #2          ; Chomp through these two bytes
 
-@@ReadOneMove:
-    ldr     r0, @StackMonStruct
-    ldrh    r1, [r7]
-    mov     r2, r6
-    bl      Pokemon_SetMoveSlot
+    mov     r0, r6              ; r0 -> pointer to Pokemon
+    mov     r2, r4              ; r2 -> inner loop counter (move slot)
+    bl      BoxPokemon_SetMoveSlot
 
-    add     r7, #trpoke_movesize
-    add     r6, #1              ; check if we've read 4 moves
-    cmp     r6, #4
-    blt     @@ReadOneMove
+    add     r4, r4, #1
+    cmp     r4, #4
+    blt     _setMovesLoop
 
-@SetCommonValues:
-    ; Set friendship
-    ldr     r0, @StackMonStruct
+_continueFromSetMoves:
+    ; Set the mon's friendship value
+    mov     r0, r6              ; r0 -> pointer to Pokemon
     bl      TrainerMon_SetFriendship
 
-    ; Set the form ID
-    ldr     r0, @StackMonStruct
-    mov     r1, #MON_DATA_FORM
-    add     r2, sp, @FormIDOffset
-    bl      Pokemon_SetValue
+    ; Set the mon's ball seal
+    ldrb    r0, [r5, #1]        ; r0 -> high byte for this mon's ball seal
+    lsl     r1, r0, #8          ; r1 -> high byte for this mon's ball seal
+    ldrb    r0, [r5, #0]        ; r0 -> low byte for this mon's ball seal
+    orr     r0, r1              ; r0 -> this mon's ball seal
+    add     r5, r5, #2          ; Chomp through these two bytes
 
-    ; Set the ball seal
-    ldrh    r0, [r7]
-    ldr     r1, @StackMonStruct
-    ldr     r2, @StackHeapID
+    mov     r1, r6              ; r1 -> pointer to Pokemon
+    ldr     r2, stack_heapID
     bl      Pokemon_SetBallSeal
 
-    ; Copy data to the party
-    ldr     r0, @StackTrainerOffset
-    ldr     r0, [r0, #4]
-    ldr     r1, @StackMonStruct
+    ; Set the mon's form ID
+    mov     r0, r6              ; r0 -> pointer to Pokemon
+    mov     r1, #MON_DATA_FORM
+    add     r2, sp, #0x44       ; r2 -> stack address of form ID
+    bl      Pokemon_SetValue
+
+    ; Recompute the mon's stats
+    mov     r0, r6              ; r0 -> pointer to Pokemon
+    bl      Pokemon_CalcStats
+
+    ; Add the Pokemon to the party
+    ldr     r0, stack_paramsWithOfs
+    ldr     r0, [r0, #4]        ; r0 -> pointer to this battler's party
+    mov     r1, r6              ; r1 -> pointer to Pokemon
     bl      Party_AddPokemon
 
-    ; Set up for next iteration
-    ldr     r0, @StackMonLoopCtr
-    add     r0, #1
-    str     r0, @StackMonLoopCtr
-    add     r7, #2
-    ldrsb   r1, r5, @BattlerTrainerPartySize
-    cmp     r0, r1
-    blt     @LoopPerMon
+    ; Setup for next iteration
+    ldr     r0, stack_trdataOfs
+    add     r0, r7
+    add     r0, #0x2B           ; r0 -> address of trainer's party size
+    ldrb    r1, [r0]            ; r1 -> trainer's party size
+ 
+    ldr     r0, stack_loopCounter
+    add     r0, r0, #1
+    str     r0, stack_loopCounter
 
-@Cleanup:
-    free    @StackReadBuffer
-    free    @StackMonStruct
-    ldr     r0, @StackSeedBackup
+    cmp     r0, r1
+    bge     _cleanup
+    b       _mainLoop
+
+_cleanup:
+    ldr     r0, stack_trpokeBuf
+    bl      Heap_FreeToHeap
+
+    mov     r0, r6
+    bl      Heap_FreeToHeap
+
+    ldr     r0, stack_oldSeed
     bl      LCRNG_SetSeed
 
-    add     sp, #0x68
-    pop     {r3-r7, pc}
+    add     sp, #0x4C
+    pop     {r4-r7,pc}
 
 .pool
 
-TrainerMon_ParseOverrideFlags:
-    ; Utility function to parse override flags for each entry in trpoke.
-    ;
-    ; Inputs:
-    ;   r0: species ID
-    ;   r1: form ID
-    ;   r2: the mon's flags
-    ;   r3: address of the PID modifier
-    push    {r4-r7, lr}
-    mov     r7, r0      ; mon's species ID (set back to r0 before exit)
-    cmp     r2, #0
-    beq     @OverrideFlagsReturn
-
-    mov     r4, r2      ; mon's flags
-    mov     r5, r3      ; address of PID modifier
-
-    ; Check the lower half. If any bit in this range is toggled, then a gender
-    ; override will occur. If *only* the least-significant bit is toggled, then
-    ; the PID modifier will be set to the species' gender ratio + 2, which
-    ; effectively forces the gender to male, if possible. Otherwise, the PID
-    ; modifier will be set to the species' gender ratio - 2, which effectively
-    ; forces the gender to female, if possible.
-    ;
-    ; An offset of 2 is used so that a potential parity flip as part of the
-    ; ability overrides does not change the gender back from the override.
-@CheckGenderOverride:
-    mov     r6, #0x0F
-    and     r6, r4
-    cmp     r6, #0
-    beq     @CheckAbilityOverride
-
-    mov     r2, #MON_DATA_PERSONAL_GENDER
-    bl      PokemonPersonalData_GetFormValue
-
-    cmp     r6, #1
-    beq     @@GenderOverrideMale
-
-@@GenderOverrideFemale:
-    sub     r0, #2
-    b       @@WithGenderOverride
-
-@@GenderOverrideMale:
-    add     r0, #2
-
-@@WithGenderOverride:
-    str     r0, [r5]
-
-    ; Check the upper half. If the least-significant bit in this range is
-    ; toggled, then the PID modifier's least-significant bit will be toggled on,
-    ; which effectively forces the mon's ability to be slot 1. If, instead, the
-    ; second-least-significant bit is set, then the PID's modifier will be
-    ; toggled on, which effectively forces the mon's ability to be slot 2.
-@CheckAbilityOverride:
-    ldr     r0, [r5]
-    mov     r1, #1
-
-    mov     r6, #0xF0
-    and     r6, r4
-    asr     r6, #4
-    cmp     r6, #1
-    beq     @@AbilityOverrideSlot1
-    cmp     r6, #2
-    bne     @OverrideFlagsReturn
-
-@@AbilityOverrideSlot2:
-    orr     r0, r1
-    b       @@WithAbilityOverride
-
-@@AbilityOverrideSlot1:
-    mvn     r2, r1
-    and     r0, r2
-
-@@WithAbilityOverride:
-    str     r0, [r5]
-
-@OverrideFlagsReturn:
-    mov     r0, r7
-    pop     {r4-r7, pc}
-
 TrainerMon_SetFriendship:
-    ; Utility function to parse override flags for each entry in trpoke.
-    ;
     ; Inputs:
-    ;   r0: address of the active Pokemon struct
-    push    {r3-r7, lr}
-    mov     r7, #0xFF       ; r7: friendship value
-    mov     r6, #0          ; r6: loop counter
-    mov     r5, r0          ; r5: address of the Pokemon struct
+    ;   r0 -> pointer to Pokemon struct
+    push    {r3-r7,lr}
 
-@CheckMovesLoop:
-    mov     r1, #MON_DATA_MOVE1
-    add     r1, r6
+    mov     r5, r0              ; r5 -> pointer to Pokemon
+    mov     r4, #0              ; r4 -> loop counter
+    mov     r7, #0xFF           ; r7 -> max friendship value
+    mov     r3, #MON_DATA_MOVE1
+
+_checkMovesLoop:
+    mov     r0, r5              ; r0 -> pointer to Pokemon
+    mov     r1, r4              ; r1 -> loop counter
+    add     r1, r3              ; r1 -> move slot
     mov     r2, #0
     bl      Pokemon_GetValue
 
     cmp     r0, #MOVE_FRUSTRATION
-    beq     @@ZeroFriendship
-    b       @@CheckMovesLoopIterate
-
-@@ZeroFriendship:
+    bne     _iterCheckMovesLoop
     mov     r7, #0
 
-@@CheckMovesLoopIterate:
-    mov     r0, r5
-    add     r6, #1
-    cmp     r6, #4
-    blt     @CheckMovesLoop
+_iterCheckMovesLoop:
+    add     r4, r4, #1
+    cmp     r4, #4
+    blt     _checkMovesLoop
 
-@SetFriendship:
+    mov     r0, r5              ; r0 -> pointer to Pokemon
     mov     r1, #MON_DATA_FRIENDSHIP
-    str     r7, @StackFriendship
-    add     r2, sp, @FriendshipOffset
+    mov     r2, sp              ; r2 -> stack address of friendship value
+    strb    r7, [r2]
     bl      Pokemon_SetValue
-    pop     {r3-r7, pc}
 
-.endarea ; 0x0408, 0xFF
+    pop     {r3-r7,pc}
 
-.org 0x20797C0      ; code signature for identification by other tools
-.area 0x08
-.word  0x1948BA48
-.ascii "LHEA"
+.pool
+
+TrainerMon_CheckOverrideFlags:
+    ; Inputs:
+    ;   r0: species ID
+    ;   r1: form ID
+    ;   r2: override flags
+    ;   r3: pointer to the PID modifier
+    push    {r4-r7,lr}
+
+    mov     r5, r3              ; r5 -> pointer to the PID modifier
+
+    mov     r3, #0x0F
+    and     r3, r2              ; r3 -> gender override chunk of flags
+    mov     r6, r3              ; r6 -> gender override chunk of flags
+    lsr     r4, r2, #4          ; r4 -> ability override chunk of flags
+
+    cmp     r2, #0
+    beq     _doneWithOverrides
+
+    ; Override gender, if requested
+    cmp     r6, #0
+    beq     _skipGenderOverride
+
+    ; Get the mon's gender ratio
+    mov     r2, #MON_DATA_PERSONAL_GENDER
+    bl      PokemonPersonalData_GetFormValue
+
+    cmp     r6, #1
+    bne     _forceGenderToFemale
+    add     r0, r0, #2
+    b       _continueFromGenderCheck
+
+_forceGenderToFemale:
+    sub     r0, r0, #2
+
+_continueFromGenderCheck:
+    str     r0, [r5]            ; PID modifier override
+
+_skipGenderOverride:
+    cmp     r4, #1
+    bne     _checkAbilityOverride2
+    mov     r1, #1
+    bic     r0, r1              ; r0 = r0 & ~1
+    str     r0, [r5]            ; PID modifier override
+    pop     {r4-r7,pc}
+
+_checkAbilityOverride2:
+    cmp     r4, #2
+    bne     _doneWithOverrides
+    mov     r1, #1
+    orr     r0, r1              ; r0 = r0 | 1
+    str     r0, [r5]            ; PID modifier override
+
+_doneWithOverrides:
+    pop     {r4-r7,pc}
+
+.pool
+
 .endarea
 
 .close
